@@ -1013,6 +1013,13 @@ def test_group_conv(groups, num_output_channels, num_input_channels, input_tenso
     assert np.allclose(output_test, output_ref, atol=1e-4)
     assert np.allclose(output_grad_test, output_grad_ref, atol=1e-4)
 
+def test_group_conv_shape(device_id):
+    x = C.input_variable((16, 64, 64))
+    param = C.parameter((16, 1, 3, 3))
+    y = C.convolution(param, x, groups=16)
+    
+    assert np.allclose(y.shape, (16, 64, 64), atol=1e-4)
+
 FREE_STATIC_AXES_MAX_POOLING_DATA = [
     ((1, 4, 6, 6), # warmup_input_size: Defines the input size used for first run with free static axes.
      (1, 4, 6, 9), # second_input_size: Defines the input size used for second run with free static axes.

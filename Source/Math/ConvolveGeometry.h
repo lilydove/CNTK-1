@@ -7,6 +7,7 @@
 #include "Basics.h"
 #include "TensorShape.h"
 #include <iterator>
+#include <mutex>
 
 namespace Microsoft { namespace MSR { namespace CNTK {
 
@@ -427,6 +428,12 @@ public:
                                           const TensorShape& dilation=TensorShape(1), const size_t groups=1, const bool ceilOutDim = false, const bool needsDynamicValidation = false,
                                           const bool isFinalValidationPass = false)
     {
+        // When detected padding for input channel axis.
+        static std::once_flag m_padChannelWarningOnceFlag;
+        // When detected padding for input channel axis in group convolution. 
+        // In this case for now we override to not pad on channel axis to maintain same behavior. 
+        static std::once_flag m_padChannelGroupsWarningOnceFlag;
+
         if (inputShape.GetRank() != kernelShape.GetRank())
             InvalidArgument("Convolution input and kernel tensors must have the same rank.");
         if (mapCount.GetRank() != 1 && inputShape.GetRank() != mapCount.GetRank())
@@ -464,13 +471,35 @@ public:
             size_t lo = lowerPad[lowerPad.size() == 1 ? 0 : i];
             size_t hi = upperPad[upperPad.size() == 1 ? 0 : i];
             size_t dil = dilation[dilation.GetRank() == 1 ? 0 : i];
-            if (autoPadCur)
+
+            bool isPadding = (autoPadCur || (lo + hi) > 0);
+            if (i == inputShape.GetRank() - 1 && isPadding)
             {
-                dim += dil * (kernelShape_i - 1);
+                if (groups > 1)
+                {
+                    std::call_once(m_padChannelGroupsWarningOnceFlag, 
+                        [] { fprintf(stderr, "WARNING: ConvolveGeometry: Padding enabled for channel axis. Is this intended? Override to not padding since channel axis padding is currently not supported in group convolution. \n"); });
+                    // Override padding on channel axis for group convolution, since in ver2.5.1 we expect the same behavior from group convolution in both settings. 
+                    isPadding = false;
+                }
+                else
+                {
+                    std::call_once(m_padChannelWarningOnceFlag,
+                        [] { fprintf(stderr, "WARNING: ConvolveGeometry: Padding enabled for channel axis. Is this intended? \n"); });
+                }
+
             }
-            else
+
+            if (isPadding)
             {
-                dim += lo + hi;
+                if (autoPadCur)
+                {
+                    dim += dil * (kernelShape_i - 1);
+                }
+                else
+                {
+                    dim += lo + hi;
+                }
             }
 
             size_t effectiveKernelShape = (kernelShape_i - 1) * dil + 1;
